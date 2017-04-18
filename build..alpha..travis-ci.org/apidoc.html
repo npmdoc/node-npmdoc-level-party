@@ -1,0 +1,244 @@
+<div class="apidocDiv">
+<style>
+/*csslint
+*/
+.apidocDiv {
+    background: #fff;
+    font-family: Arial, Helvetica, sans-serif;
+}
+.apidocDiv a[href] {
+    color: #33f;
+    font-weight: bold;
+    text-decoration: none;
+}
+.apidocDiv a[href]:hover {
+    text-decoration: underline;
+}
+.apidocCodeCommentSpan {
+    background: #bbf;
+    color: #000;
+    display: block;
+}
+.apidocCodeKeywordSpan {
+    color: #d00;
+    font-weight: bold;
+}
+.apidocCodePre {
+    background: #eef;
+    border: 1px solid;
+    color: #777;
+    padding: 5px;
+    white-space: pre-wrap;
+}
+.apidocFooterDiv {
+    margin-top: 20px;
+    text-align: center;
+}
+.apidocModuleLi {
+    margin-top: 10px;
+}
+.apidocSectionDiv {
+    border-top: 1px solid;
+    margin-top: 20px;
+}
+.apidocSignatureSpan {
+    color: #777;
+    font-weight: bold;
+}
+</style>
+<h1>api documentation for
+    <a
+
+        href="https://github.com/substack/level-party"
+
+    >level-party (v3.0.4)</a>
+</h1>
+<h4>open a leveldb handle multiple times</h4>
+<div class="apidocSectionDiv"><a
+    href="#apidoc.tableOfContents"
+    id="apidoc.tableOfContents"
+><h1>table of contents</h1></a><ol>
+
+    <li class="apidocModuleLi"><a href="#apidoc.module.level-party">module level-party</a><ol>
+
+        <li>
+
+            <a class="apidocElementLiA" href="#apidoc.element.level-party.level-party">
+            function <span class="apidocSignatureSpan"></span>level-party
+            <span class="apidocSignatureSpan">(dir, opts)</span>
+            </a>
+
+        </li>
+
+        <li>
+
+            <a class="apidocElementLiA" href="#apidoc.element.level-party.toString">
+            function <span class="apidocSignatureSpan">level-party.</span>toString
+            <span class="apidocSignatureSpan">()</span>
+            </a>
+
+        </li>
+
+    </ol></li>
+
+    <li class="apidocModuleLi"><a href="#apidoc.module.level-party.toString">module level-party.toString</a><ol>
+
+        <li>
+
+            <a class="apidocElementLiA" href="#apidoc.element.level-party.toString.toString">
+            function <span class="apidocSignatureSpan">level-party.</span>toString
+            <span class="apidocSignatureSpan">()</span>
+            </a>
+
+        </li>
+
+    </ol></li>
+
+</ol></div>
+
+<div class="apidocSectionDiv">
+<h1><a href="#apidoc.module.level-party" id="apidoc.module.level-party">module level-party</a></h1>
+
+
+    <h2>
+        <a href="#apidoc.element.level-party.level-party" id="apidoc.element.level-party.level-party">
+        function <span class="apidocSignatureSpan"></span>level-party
+        <span class="apidocSignatureSpan">(dir, opts)</span>
+        </a>
+    </h2>
+    <ul>
+    <li>description and source-code<pre class="apidocCodePre">level-party = function (dir, opts) {
+    if (!opts) opts = {};
+    if (!has(opts, &#x27;retry&#x27;)) opts.retry = true;
+
+    var sockPath = process.platform === &#x27;win32&#x27; ?
+        &#x27;\\\\.\\pipe\\level-party\\&#x27; + path.resolve(dir) :
+        path.join(dir, &#x27;level-party.sock&#x27;);
+
+    var client = multileveldown.client(opts);
+
+    client.open(tryConnect);
+
+    function tryConnect () {
+        if (!client.isOpen()) return;
+
+        var socket = net.connect(sockPath);
+        var connected = false;
+
+        socket.on(&#x27;connect&#x27;, function () {
+            connected = true;
+        });
+
+        // we pass socket as the ref option so we dont hang the event loop
+        pump(socket, client.createRpcStream({ref: socket}), socket, function () {
+            if (!client.isOpen()) return;
+
+            var db = level(dir, opts);
+
+            db.on(&#x27;error&#x27;, onerror);
+            db.on(&#x27;open&#x27;, onopen);
+
+            function onerror (err) {
+                db.removeListener(&#x27;open&#x27;, onopen);
+                if (err.type === &#x27;OpenError&#x27;) {
+                    if (connected) return tryConnect();
+                    setTimeout(tryConnect, 100);
+                }
+            }
+
+            function onopen () {
+                db.removeListener(&#x27;error&#x27;, onerror);
+                fs.unlink(sockPath, function (err) {
+                    if (err &#x26;&#x26; err.code !== &#x27;ENOENT&#x27;) return db.emit(&#x27;error&#x27;, err);
+                    if (!client.isOpen()) return;
+
+                    var sockets = [];
+                    var down = client.db;
+
+                    var server = net.createServer(function (sock) {
+                        if (sock.unref) sock.unref();
+                        sockets.push(sock);
+                        pump(sock, multileveldown.server(db), sock, function () {
+                            sockets.splice(sockets.indexOf(sock), 1);
+                        });
+                    });
+
+                    client.db = db.db;
+                    client.close = shutdown;
+                    client.emit(&#x27;leader&#x27;);
+                    down.forward(db.db);
+
+                    server.listen(sockPath, onlistening);
+
+                    function shutdown (cb) {
+                        sockets.forEach(function (sock) {
+                            sock.destroy();
+                        });
+                        server.on(&#x27;close&#x27;, function () {
+                            db.close(cb);
+                        });
+                        server.close();
+                    }
+
+                    function onlistening () {
+                        if (server.unref) server.unref();
+                        if (down.isFlushed()) return;
+
+                        var sock = net.connect(sockPath);
+                        pump(sock, down.createRpcStream(), sock);
+                        client.once(&#x27;flush&#x27;, function () {
+                            sock.destroy();
+                        });
+                    }
+                });
+            }
+        });
+    };
+
+    return client;
+}</pre></li>
+    <li>example usage<pre class="apidocCodePre">n/a</pre></li>
+    </ul>
+
+
+
+    <h2>
+        <a href="#apidoc.element.level-party.toString" id="apidoc.element.level-party.toString">
+        function <span class="apidocSignatureSpan">level-party.</span>toString
+        <span class="apidocSignatureSpan">()</span>
+        </a>
+    </h2>
+    <ul>
+    <li>description and source-code<pre class="apidocCodePre">toString = function () {
+    return text;
+}</pre></li>
+    <li>example usage<pre class="apidocCodePre">n/a</pre></li>
+    </ul>
+
+
+</div>
+
+<div class="apidocSectionDiv">
+<h1><a href="#apidoc.module.level-party.toString" id="apidoc.module.level-party.toString">module level-party.toString</a></h1>
+
+
+    <h2>
+        <a href="#apidoc.element.level-party.toString.toString" id="apidoc.element.level-party.toString.toString">
+        function <span class="apidocSignatureSpan">level-party.</span>toString
+        <span class="apidocSignatureSpan">()</span>
+        </a>
+    </h2>
+    <ul>
+    <li>description and source-code<pre class="apidocCodePre">function toString() { [native code] }</pre></li>
+    <li>example usage<pre class="apidocCodePre">n/a</pre></li>
+    </ul>
+
+
+</div>
+
+<div class="apidocFooterDiv">
+    [ this document was created with
+    <a href="https://github.com/kaizhu256/node-utility2" target="_blank">utility2</a>
+    ]
+</div>
+</div>
