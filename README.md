@@ -1,6 +1,6 @@
 # npmdoc-level-party
 
-#### api documentation for  [level-party (v3.0.4)](https://github.com/substack/level-party)  [![npm package](https://img.shields.io/npm/v/npmdoc-level-party.svg?style=flat-square)](https://www.npmjs.org/package/npmdoc-level-party) [![travis-ci.org build-status](https://api.travis-ci.org/npmdoc/node-npmdoc-level-party.svg)](https://travis-ci.org/npmdoc/node-npmdoc-level-party)
+#### basic api documentation for  [level-party (v3.0.4)](https://github.com/substack/level-party)  [![npm package](https://img.shields.io/npm/v/npmdoc-level-party.svg?style=flat-square)](https://www.npmjs.org/package/npmdoc-level-party) [![travis-ci.org build-status](https://api.travis-ci.org/npmdoc/node-npmdoc-level-party.svg)](https://travis-ci.org/npmdoc/node-npmdoc-level-party)
 
 #### open a leveldb handle multiple times
 
@@ -77,7 +77,8 @@
     "scripts": {
         "test": "tape test/*.js"
     },
-    "version": "3.0.4"
+    "version": "3.0.4",
+    "bin": {}
 }
 ```
 
